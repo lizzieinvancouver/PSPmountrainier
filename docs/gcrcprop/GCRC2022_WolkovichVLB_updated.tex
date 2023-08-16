@@ -1,0 +1,64 @@
+\documentclass[11pt,letter]{article}
+\usepackage[top=1.00in, bottom=1.0in, left=1.1in, right=1.1in]{geometry}
+\renewcommand{\baselinestretch}{1.05}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{babel}
+
+\def\labelitemi{--}
+\parindent=0pt
+\parskip=1.25ex
+
+\newenvironment{smitemize}{
+\begin{itemize}
+  \setlength{\itemsep}{1pt}
+  \setlength{\parskip}{0pt}
+  \setlength{\parsep}{0pt}}
+{\end{itemize}
+}
+
+\newcommand{\Section}[1]{\vspace{-8pt}\section{\hskip
+    -1em.~~#1}\vspace{-3pt}} 
+
+\begin{document}
+\thispagestyle{empty}
+\renewcommand{\thefootnote}{\fnsymbol{footnote}}
+\begin{center}
+\noindent {\large {\bf Accelerating Science through Generative Bayesian modeling}}
+\end{center}
+
+% Describe the new directions for research
+Eco-evolutionary science is at pivotal crossroads. Increasing impacts of global change have put pressure on the field to bridge from its diverse mechanistic models to holistic ecosystem forecasts for adaptation and mitigation. To aid this, more and more data---including from satellites, camera traps, and eDNA---have poured in. With these new data have come increasing reliance on model comparisons and machine learning (ML) approaches that focus on correlations, which may fail when dynamics shift. Alongside the rise of ML and other exploratory approaches, generative modeling using Bayesian inference has also grown, become tractable, and developed a more defined workflow. This approach builds on existing knowledge by using fundamental mechanistic models and through prior distributions, as a means of incorporating domain expertise. % ---routinely challenging them with empirical data. 
+
+By challenging researchers to combine current data with underlying models, generative Bayesian methods can revolutionize how we do science. This approach erases lines between mathematical and statistical models, and instead merges them to provide better inference and forecasts. The approach's workflow helps researchers discover gaps, hidden complexities and uncertainties in their science, and more tightly links model development with experimental design. The power of this approach only comes, however, from understanding its applications and from efforts to train a new generation of researchers as generative Bayesian eco-evolutionary modelers.  
+% Here we propose a one-day symposium and three-day workshop to highlight the power and current application of this approach, as well as to meet growing demand for training in this area and build a new generation of eco-evolutionary modelers. 
+ % But the field needs more appreciation of the approach, and its power, and more trained whipper-snappers. Hence, our proposal .... 
+% Further, a new workflow for Bayesian generative modeling provides a critical method to build on eco-evo's models with new data and insights to produce robust forecasts. 
+
+\emph{Expected outcomes \& timeline:} \\
+A one-day symposium will highlight the utility of this approach across eco-evo science for up to 100 attendees. After the symposium a 1-2 day working group meeting will outline the utility and adaptation of generative Bayesian modeling for eco-evolutionary science, resulting in 1-2 review/concept papers (for \emph{TREE} or similar). Next, we will train up to 20 UBC students/postdocs in the generative Bayesian modeling workflow through a 2-3 day training skills workshop, which will overview the workflow and provide basic training in Stan (a probabilistic programming language for bespoke Bayesian models). 
+
+Given the number of schedules to coordinate, we expect it will take 4-8 months after funding is received to organize the symposium and training skills workshop. We thus plan time for this followed by the second meeting within four months for the trainers to meet again to review the training workshop outcome (via survey results) and complete papers.
+
+% List confirmed team members, collaborators, and partners and briefly their role
+% Describe the role confirmed team members, including objective measures of the team’s excellence.
+\emph{Proposed participants:} \\
+EM Wolkovich (UBC, confirmed) and Vianey Leos Barajas (UT, confirmed) will organize all events and make sure papers are developed, written and submitted. They and the following participants represent leaders in eco-evo Bayesian and/or mathematical modeling. Most have enthusiastically confirmed for speaking (S), working group (W), and teaching workshop (T), as indicated. Marie Auger-M\'{e}th\'{e} (UBC, confirmed SW), Sally Otto (UBC, confirmed SW), Michael Betancourt (Symplectomorphic, confirmed SWT), Ailene Ettinger (TNC, confirmed SW), Max B. Joseph (SW), Andrew McDonald (NCX, confirmed SW), Leithen McGonigle (SFU, SW), Th\'{e}o Michelot (Dalhousie, confirmed SWT), Will Pearse (Imperial, confirmed SWT). % Additionally, trainees from the three-day workshop can apply to join the team for the following working group meetings via a short application, explaining their interest in the working group and showing additional progress on their model from day 3 of workshop (i.e., they must show that they are continuing to do Bayesian generative modeling). 
+
+\emph{Use of funds:} \\
+Funds of \$25,360 are requested for airfare (\$8,800), housing (\$6,440) and per diem (\$3,840) for symposium speakers (including housing for several nights for the working group meeting), and workshop trainers (we plan to have the symposium, working group and skills workshop in one period to keep the number and cost of flights to a minimum), snacks and some equipment for the skills workshop (\$1,000). We hope to use campus space for the workshop to keep space costs down. Additional travel funds for 1-2 short meetings as explained in timeline above (\$1,600 in airfare, \$3,680 in housing). \\
+
+Total funds per category:
+\begin{itemize}
+\item {\bf Event:} \$1,000
+\item {\bf Outreach:} \$0
+\item {\bf Travel \& accommodation:} \$20,520
+\item {\bf Other:} \$3,840
+\item {\bf Trainee stipend:} \$0
+\end{itemize}
+
+%  Describe the cluster's commitment to equity, diversity, and inclusion as it applies to cluster membership, proposed activities and research themes
+%  Describe the cluster’s knowledge exchange activities, including the change or impact desired resulting from the cluster’s research, and identify target audiences and potential collaborators (300 words max; for additional knowledge exchange resources please see the knowledge exchange resource guide).
+%  Budget with justification.
+% Trainee Stipend. Include description of the research project and role that the trainee will play in support of your cluster goals and proposed outcome, and how this will mutually benefit both the cluster and the trainee(s). Provide a brief description of the access the trainee(s) will have to research training support, mentorship, and career development.
+\end{document}
