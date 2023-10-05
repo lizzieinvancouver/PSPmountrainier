@@ -106,3 +106,17 @@ Could look at tree growth for one species (or more) over time in one STAND. Stan
 	- AV06 - Lower in elevation (more species) is Longmire climate data (Ranger station) but climate data may not be as good
 
 Could look at elevational trends in tree growth. 
+
+Chatted with Ailene Ettinger on 4 Oct 2023:
+
+She mentioned two papers on these data:
+https://cdnsciencepub.com/doi/abs/10.1139/X10-149 (The tree mortality regime in temperate old-growth coniferous forests: the role of physical damage)
+https://www.science.org/doi/abs/10.1126/science.1165000 (Widespread Increase of Tree Mortality Rates in the Western United States)
+
+She also said she is not sure if plot is relevant; standID is the unit she has used.
+
+She would not be surprised if height is not always sampled.
+
+Notes -- she shew WtchBrm is a Witch's Broom, a likely sign of disease.
+
+She said the climate data sounded right.
