@@ -19,3 +19,11 @@
 
 \notposting
 \data\treestands\notposting
+
+# Quarto Detritus
+*_files
+*_cache
+
+# Mac Detritus
+*.DS_Store
+
