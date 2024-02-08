@@ -1,0 +1,113 @@
+ \documentclass{standalone}
+\usepackage{graphicx}	
+\usepackage{amssymb, amsmath}
+\usepackage{color}
+
+\usepackage{tikz}
+\usetikzlibrary{intersections, backgrounds, math, arrows.meta}
+\usepackage{pgfmath}
+
+\definecolor{light}{RGB}{220, 188, 188}
+\definecolor{mid}{RGB}{185, 124, 124}
+\definecolor{dark}{RGB}{143, 39, 39}
+\definecolor{highlight}{RGB}{180, 31, 180}
+\definecolor{light_teal}{RGB}{107, 142, 142}
+\definecolor{mid_teal}{RGB}{72, 117, 117}
+\definecolor{dark_teal}{RGB}{29, 79, 79}
+\definecolor{gray10}{gray}{0.1}
+\definecolor{gray20}{gray}{0.2}
+\definecolor{gray30}{gray}{0.3}
+\definecolor{gray40}{gray}{0.4}
+\definecolor{gray60}{gray}{0.6}
+\definecolor{gray70}{gray}{0.7}
+\definecolor{gray80}{gray}{0.8}
+\definecolor{gray90}{gray}{0.9}
+\definecolor{gray95}{gray}{0.95}
+
+\tikzmath{
+  function x(\x, \y, \z, \theta, \phi) {
+    \xa = +cos(\theta) * \x + sin(\theta) * \z;
+    \ya = \y;
+    \za = -sin(\theta) * \x + cos(\theta) * \z;
+    %
+    \xb = \xa;
+    \yb = +cos(\phi) * \ya + sin(\phi) * \za;
+    %\zb = -sin(\phi) * \ya + cos(\phi) * \za;
+    %  
+    return \xb;
+  };
+  function y(\x, \y, \z, \theta, \phi) {
+    \xa = +cos(\theta) * \x + sin(\theta) * \z;
+    \ya = \y;
+    \za = -sin(\theta) * \x + cos(\theta) * \z;
+    %
+    \xb = \xa;
+    \yb = +cos(\phi) * \ya + sin(\phi) * \za;
+    %\zb = -sin(\phi) * \ya + cos(\phi) * \za;
+    %   
+    return \yb;
+  };
+}
+
+\begin{document}
+
+\begin{tikzpicture}[scale=1.0]
+      
+  \pgfmathsetmacro{\r}{1.5}
+  \pgfmathsetmacro{\d}{1.0}
+  
+  \pgfmathsetmacro{\s}{2}
+   
+  \pgfmathsetmacro{\theta}{0}
+  \pgfmathsetmacro{\phi}{60}
+
+  \begin{scope}[shift={(0, 0)}]
+    \draw[white] (-2.5, -3.5) rectangle (2.5, 3.5);
+
+    \draw[domain={0}:{180}, smooth, samples=50, variable=\t, light, dashed, line width=1] 
+          plot ({x(\r * cos(\t), \r * sin(\t), 0, \theta, \phi)}, 
+                {y(\r * cos(\t), \r * sin(\t), 0, \theta, \phi)}); 
+
+    \draw[domain={0}:{180}, smooth, samples=50, variable=\t, mid, dashed, line width=1] 
+          plot ({x(\r * cos(\t), \r * sin(\t), \d * (\t - 180) / 180, \theta, \phi)}, 
+                {y(\r * cos(\t), \r * sin(\t), \d * (\t - 180) / 180, \theta, \phi)}); 
+
+    \draw[domain={0}:{360}, smooth, samples=50, variable=\t, black, dashed, line width=1] 
+          plot ({x(\r * cos(\t), \r * sin(\t), 0, \theta, \phi)}, 
+                {y(\r * cos(\t), \r * sin(\t), 0, \theta, \phi) + 2.5});
+  
+    \draw[domain={0}:{360}, smooth, samples=50, variable=\t, black, dashed, line width=1] 
+          plot ({x(\r * cos(\t), \r * sin(\t), 0, \theta, \phi)}, 
+                {y(\r * cos(\t), \r * sin(\t), 0, \theta, \phi) - 2.5}); 
+                
+    \draw[black, line width=1] (-\r, +2.5) -- (-\r, -2.5);
+    \draw[black, line width=1] (+\r, +2.5) -- (+\r, -2.5);
+
+    \draw[domain={180}:{360}, smooth, samples=50, variable=\t, mid, dashed, line width=1] 
+          plot ({x(\r * cos(\t), \r * sin(\t), \d * (180 - \t) / 180, \theta, \phi)}, 
+                {y(\r * cos(\t), \r * sin(\t), \d * (180 - \t) / 180, \theta, \phi)}); 
+
+    \draw[domain={180}:{360}, smooth, samples=50, variable=\t, light, dashed, line width=1] 
+          plot ({x(\r * cos(\t), \r * sin(\t), 0, \theta, \phi)}, 
+                {y(\r * cos(\t), \r * sin(\t), 0, \theta, \phi)}); 
+
+    \fill[dark] (-\r, 0) circle (0.05) node[left] { Tag };
+    \draw[|-|, line width=1] (+\r + 0.25, 0) -- (+\r + 0.25, -\d) node[right, midway] { $\delta$ };
+  
+  \end{scope}
+  
+  \begin{scope}[shift={(5, 0)}]
+    \draw[white] (-2.5, -3.5) rectangle (2.5, 3.5);
+    
+    \draw[light, line width=1] (-\r, 0) -- (+\r, 0);
+    \draw[mid, line width=1] (-\r, 0) -- (+\r, -\d);
+    
+    \draw[|-|, line width=1] (-\r, 0.25) -- (+\r, 0.25) node[above, midway] { $d = 2 \cdot r = 2 \cdot b$ };
+    \draw[|-|, line width=1] (+\r + 0.25, 0) -- (+\r + 0.25, -\d) node[right, midway] { $\delta$ };
+    \draw[|-|, line width=1] (-\r - 0.05, -0.25) -- (+\r - 0.05, -\d - 0.25) 
+      node[below, midway, xshift=-10, yshift=-6] { $\sqrt{ d^{2} + \delta^{2} } = 2 \cdot a$ };
+  \end{scope}
+    
+\end{tikzpicture}
+
+\end{document}  

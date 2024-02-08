@@ -1,0 +1,56 @@
+\documentclass{standalone}
+\usepackage{graphicx}	
+\usepackage{amssymb, amsmath}
+\usepackage{color}
+
+\usepackage{tikz}
+\usetikzlibrary{math, arrows.meta, decorations.pathreplacing}
+\usepackage{pgfmath}
+
+\definecolor{light}{RGB}{220, 188, 188}
+\definecolor{mid}{RGB}{185, 124, 124}
+\definecolor{dark}{RGB}{143, 39, 39}
+\definecolor{highlight}{RGB}{180, 31, 180}
+\definecolor{gray10}{gray}{0.1}
+\definecolor{gray20}{gray}{0.2}
+\definecolor{gray30}{gray}{0.3}
+\definecolor{gray40}{gray}{0.4}
+\definecolor{gray60}{gray}{0.6}
+\definecolor{gray70}{gray}{0.7}
+\definecolor{gray80}{gray}{0.8}
+\definecolor{gray90}{gray}{0.9}
+\definecolor{gray95}{gray}{0.95}
+
+\tikzmath{
+  function gompertz(\x, \d, \b, \t) {
+    return \d * exp(-ln(2) * exp(- (2 / ln(2)) * (\b / \d) * (\x - \t)));
+  };
+}
+
+\begin{document}
+
+\begin{tikzpicture}[scale=1]
+
+  \begin{scope}[shift={(0, 0)}]
+    \draw[white] (-4.5, -3.75) rectangle (4.5, 3);
+  
+    \draw[gray80, dashed, line width=1] (-3, -1) -- (3, -1);
+    \node at (3.5, -1) { $d_{0}$ };
+    
+    \begin{scope}
+      \clip (-3, -2) rectangle (3, 2);
+      \draw[domain=-3:3, smooth, samples=10, variable=\x, light, line width=1] 
+        plot (\x, { (0.5 * (\x + 3) + 1) - 2 });
+    \end{scope}
+    
+    \draw [->, >=stealth, line width=1] (-3.00, -2.015) -- +(0, 4);
+    \draw [->, >=stealth, line width=1] (-3.015, -2.00) -- +(6, 0);
+
+    \node at (-3.75, 0) { $d(t)$ };
+    \node at (0, -3.25) { $t$ };
+    
+  \end{scope}
+
+\end{tikzpicture}
+
+\end{document}  

@@ -1,0 +1,1544 @@
+---
+title: "Modeling Tree Diameter Growth"
+author: "Michael Betancourt"
+date: "January 2024"
+date-format: "MMMM YYYY"
+toc: true
+number-sections: true
+highlight: pygments
+crossref:
+  lst-title: "Stan Program"
+filters:
+   - include-code-files
+format:
+  html:
+    html-math-method: katex
+    theme:
+      - lux
+      - custom.scss
+    standalone: true
+    embed-resources: true
+    code-overflow: wrap
+    linkcolor: "#B97C7C"
+  pdf:
+    keep-tex: true
+    fig-width: 5.5
+    fig-height: 5.5
+    code-overflow: wrap
+    monofontoptions:
+      - Scale=0.5
+execute:
+  cache: false
+knitr:
+  opts_chunk:
+    comment: ''
+  opts_knit:
+    global.par: TRUE
+format-links: false
+---
+
+Because tree growth is sensitive to the surrounding environmental, in
+particular the ambient climate, continual measurements of tree growth
+are a powerful way to learn about the history of changes to that
+environment.  In this exercise we'll explore a Bayesian approach to
+modeling and drawing inferences from tree diameter data measurements,
+with a focus on capturing the underlying data generating process.  At
+the end I'll discuss how this exercise was integrated into a two-day
+interactive workshop.
+
+# Familiarizing Ourselves With The Data
+
+Before building any models we need to understand is being modeled. In
+particular we need to develop our understanding of the data and its
+provenance.
+
+## Data Provenance {#sec:provenance}
+
+The data with which we'll be working consists of
+**diameter at breast height**, or **DBH**, measurements.  These
+measurements are made by wrapping a measuring tape around the trunk of a
+tree at a height of 1.37 meters, approximating the breast height of an
+average human (@fig-diameter-measurement).  This height is high enough
+to avoid the tree roots and forest floor but low enough to be accessible
+to researchers making the measurements.  Diameter observations are given
+by dividing the recorded circumference by $\pi$.
+
+When the diameter of a tree is first measured it is marked with a tag to
+indicate the breast height used.  All future diameter measurements are
+made at the tag height to ensure consistency across time.
+
+![Tree diameters are measured by wrapping a measuring tape around the
+trunk of a tree 1.37 meters above the ground and then dividing the
+recorded circumference by $\pi$.  Here Robert Ettinger is recording tree
+diameters in the Pacific Northwest.  Photo :copyright: Ailene Ettinger,
+used with permission.](
+figures/photos/diameter_measurement_ii.jpg){
+width=50% #fig-diameter-measurement}
+
+The H.J. Andrews Experimental Forest and Long Term Ecological Research
+Program has censused trees in forests across the Pacific Northwest every
+five or six years for decades.  In addition to the tree diameter
+additional physiological attributes, such as tree vigor and the
+condition of the tree crown and stem are also recorded.  If a tree is
+found to have died since it was last measured then a mortality
+assessment is also performed.  For intimate detail on the measurement
+procedures and the structure of the resulting data see the
+[Pacific Northwest Permanent Sample Plot Program
+Protocol for Tree Measurements and Mortality Assessments](https://github.com/lizzieinvancouver/bayesian2024ubc/tree/main/data/treestands/metadata/PSP_tree_measurement_protocol_v2019.pdf).
+
+In this exercise we will be focusing on data collected from forests
+around Mount Rainier (@fig-mount-rainier).  These forests cover a wide
+range of elevations and other environmental conditions which make them
+particularly well-suited for studying various aspects of an evolving
+climate.  That said here we will consider only trees that are isolated
+to a single stand of forest.
+
+![The forests around Mount Rainier span a diversity of environmental
+conditions.  Photo courtesy of WikiMedia,
+<https://commons.wikimedia.org/wiki/File:Mount_Rainier_panorama_2.jpg>.](
+figures/photos/mount_rainier_panorama.jpg){
+width=100% #fig-mount-rainier}
+
+## Code Environment Set Up {#sec:initial-setup}
+
+With the provenance established we're ready to take our first peak at
+the data itself.  We'll start by configuring our local `R` environment
+for some reasonably aesthetic visualizations.
+
+```{r}
+#| echo: !expr knitr::is_html_output()
+#| eval: !expr knitr::is_html_output()
+par(family="sans", las=1, bty="l",
+    cex.axis=1, cex.lab=1, cex.main=1,
+    xaxs="i", yaxs="i", mar = c(5, 5, 3, 1))
+
+c_light <- c("#DCBCBC")
+c_light_highlight <- c("#C79999")
+c_mid <- c("#B97C7C")
+c_mid_highlight <- c("#A25050")
+c_dark <- c("#8F2727")
+c_dark_highlight <- c("#7C0000")
+
+c_light_teal <- c("#6B8E8E")
+c_mid_teal <- c("#487575")
+c_dark_teal <- c("#1D4F4F")
+```
+
+```{r}
+#| echo: !expr knitr::is_latex_output()
+#| eval: !expr knitr::is_latex_output()
+par(family="serif", las=1, bty="l",
+    cex.axis=1, cex.lab=1, cex.main=1,
+    xaxs="i", yaxs="i", mar = c(5, 5, 3, 5))
+
+c_light <- c("#DCBCBC")
+c_light_highlight <- c("#C79999")
+c_mid <- c("#B97C7C")
+c_mid_highlight <- c("#A25050")
+c_dark <- c("#8F2727")
+c_dark_highlight <- c("#7C0000")
+
+c_light_teal <- c("#6B8E8E")
+c_mid_teal <- c("#487575")
+c_dark_teal <- c("#1D4F4F")
+```
+
+## Exploratory Data Analysis {#sec:eda}
+
+We now read in our data for stand AV06.  The columns and their possible
+values are carefully documented in [Pacific Northwest Permanent Sample
+Plot Program Protocol for Tree Measurements and Mortality Assessments](https://github.com/lizzieinvancouver/bayesian2024ubc/tree/main/data/treestands/metadata/PSP_tree_measurement_protocol_v2019.pdf).
+
+```{r}
+stand_tree_data <- read.csv('data/TV01002_v17_AV06.csv', skip=5)
+```
+
+To ensure that visualizations fit nicely into this document I'm going to
+restrict consideration to only the first 22 trees in the stand.
+
+```{r}
+tree_ids <-  unique(stand_tree_data$TREEID)
+
+N_trees <- 22
+tree_ids <- tree_ids[1:N_trees]
+```
+
+In this nominal format repeated measurements of a given tree are not
+necessarily organized next to each other.  Because we are particularly
+interested in tree diameter growth it will be much more convenient to
+collect repeated measurements together and construct indices that allow
+us to readily isolate the data for a single tree.
+
+Note how we're using our understanding of the data generating process to
+motivate how we format and visualize the data.  Exploratory data
+analysis is always done in the context of as assumed, if conceptual,
+data generating process!
+
+```{r}
+tree_N_obs <- c()
+tree_start_idxs <- c()
+tree_end_idxs <- c()
+tree_years <- c()
+tree_dbhs <- c()
+tree_vigors <- c()
+tree_species <- c()
+tree_statuses <- c()
+tree_notes <- c()
+
+idx <- 1
+
+for (id in tree_ids) {
+  # Isolate observations for given tree
+  tree_data <- stand_tree_data[stand_tree_data['TREEID'] == id,]
+
+  years <- tree_data[,'YEAR']
+  dbhs <- tree_data[,'DBH']
+  vigors <- tree_data[,'TREE_VIGOR']
+  species <- tree_data[,'SPECIES']
+  statuses <- tree_data[,'TREE_STATUS']
+  notes <- tree_data[,'CHECK_NOTES']
+
+  # Append tree data
+  N_obs <- length(years)
+  tree_N_obs <- c(tree_N_obs, N_obs)
+
+  start_idx <- idx
+  end_idx <- idx + N_obs - 1
+  idx <- idx + N_obs
+  tree_start_idxs <- c(tree_start_idxs, start_idx)
+  tree_end_idxs <- c(tree_end_idxs, end_idx)
+
+  tree_years <- c(tree_years, years)
+  tree_dbhs <- c(tree_dbhs, dbhs)
+  tree_species <- c(tree_species, species)
+  tree_vigors <- c(tree_vigors, vigors)
+  tree_statuses <- c(tree_statuses, statuses)
+  tree_notes <- c(tree_notes, notes)
+}
+```
+
+Each tree diameter measurement is accompanied by many different
+assessments of the tree's condition.  For our initial investigation
+I take a look at **tree vigor** which is a general quantification of
+health.  We can communicate tree vigor in our visualizations by coloring
+each observation according to the five possible statuses.
+
+```{r}
+vigor_cols <- list("1" = c_dark, "2" = c_mid, "3" = c_light,
+                   "U" = c_mid_teal, "M" = "black")
+```
+
+This reorganization of the data makes it straightforward to plot a
+time series of measurements for each tree.  Each observation is colored
+according to the tree vigor.  Observations of dead trees with
+`TREE_VIGOR = "M"` are given `NA` diameters values; these will be
+denoted with gray rectangles at the corresponding observation year.
+
+```{r}
+plot_tree_data <- function(t) {
+  tree_idxs <- tree_start_idxs[t]:tree_end_idxs[t]
+
+  years <- tree_years[tree_idxs]
+  dbhs <- tree_dbhs[tree_idxs]
+  vigors <- tree_vigors[tree_idxs]
+  cols = sapply(vigors, function(v) vigor_cols[[v]])
+
+  xlims <- range(years)
+  delta <- xlims[2] - xlims[1]
+  xlims[1] <- xlims[1] - 0.1 * delta
+  xlims[2] <- xlims[2] + 0.1 * delta
+
+  ylims <- range(dbhs, na.rm=TRUE)
+  delta <- ylims[2] - ylims[1]
+  ylims[1] <- ylims[1] - 0.1 * delta
+  ylims[2] <- ylims[2] + 0.1 * delta
+
+  plot(years, dbhs,
+       main=paste0(tree_ids[t], "\nLocal Tree Index = ", t),
+       pch=16, cex=0.8, col=cols,
+       xlab="Year", xlim=xlims, ylab="DBH", ylim=ylims)
+
+  na_idxs <- which(is.na(dbhs))
+  for (na_idx in na_idxs) {
+    abline(v=years[na_idx], col='#DDDDDD', lwd=3)
+  }
+}
+```
+
+So how does our data look?
+
+```{r}
+par(mfrow=c(3, 3))
+for (t in 1:18) {
+  plot_tree_data(t)
+}
+
+par(mfrow=c(2, 3))
+for (t in 19:N_trees) {
+  plot_tree_data(t)
+}
+
+```
+
+Most of the trees exhibit clean sequences of measurements that
+increase with time, consistent with persistent tree growth.
+
+```{r}
+par(mfrow=c(1, 1))
+
+plot_tree_data(10)
+```
+
+Some trees, however, have perished resulting in `NA` diameter
+measurements.
+
+```{r}
+plot_tree_data(2)
+```
+
+Still others contain only a few measurements which limits how well we
+can constrain potential growth models.
+
+```{r}
+plot_tree_data(16)
+```
+
+For our initial analysis let's clean up the data by removing
+observations of dead trees, `DBH = NA` and `TREE_VIGOR = "M"`.  Moreover
+let's remove trees without at least four observations entirely.  Why at
+least four observations?  Eventually we will want to use four-parameter
+growth models that require at least four observations to be identified.
+
+```{r}
+good_tree_ids <- c()
+tree_N_obs <- c()
+tree_start_idxs <- c()
+tree_end_idxs <- c()
+tree_years <- c()
+tree_dbhs <- c()
+tree_vigors <- c()
+tree_species <- c()
+tree_statuses <- c()
+tree_notes <- c()
+
+idx <- 1
+
+for (id in tree_ids) {
+  # Isolate observations for given tree
+  tree_data <- stand_tree_data[stand_tree_data['TREEID'] == id,]
+
+  years <- tree_data[,'YEAR']
+  dbhs <- tree_data[,'DBH']
+  vigors <- tree_data[,'TREE_VIGOR']
+  species <- tree_data[,'SPECIES']
+  statuses <- tree_data[,'TREE_STATUS']
+  notes <- tree_data[,'CHECK_NOTES']
+
+  # Remove post-mortality observations
+  good_obs <- which(vigors != "M")
+  years <- years[good_obs]
+  dbhs <- dbhs[good_obs]
+  vigors <- vigors[good_obs]
+  species <- species[good_obs]
+  statuses <- statuses[good_obs]
+  notes <- notes[good_obs]
+
+  # Drop tree if there are not at least four observations
+  N_obs <- length(years)
+  if (N_obs < 4) next
+
+  # Append tree data
+  good_tree_ids <- c(good_tree_ids, id)
+  tree_N_obs <- c(tree_N_obs, N_obs)
+
+  start_idx <- idx
+  end_idx <- idx + N_obs - 1
+  idx <- idx + N_obs
+  tree_start_idxs <- c(tree_start_idxs, start_idx)
+  tree_end_idxs <- c(tree_end_idxs, end_idx)
+
+  tree_years <- c(tree_years, years)
+  tree_dbhs <- c(tree_dbhs, dbhs)
+  tree_vigors <- c(tree_vigors, vigors)
+  tree_species <- c(tree_species, species)
+  tree_statuses <- c(tree_statuses, statuses)
+  tree_notes <- c(tree_notes, notes)
+}
+
+N <- length(tree_years)
+N_trees <- length(good_tree_ids)
+```
+
+This leaves 25 trees with well-behaved enough observations to inform
+the common growth models that we will consider below.
+
+```{r}
+par(mfrow=c(3, 3))
+
+for (t in 1:N_trees) {
+  plot_tree_data(t)
+}
+```
+
+# Modeling Tree Growth
+
+Our exploratory data analysis didn't reveal any behavior that we didn't
+already expected from our understanding of the data generating process.
+We are now ready to model that data generating process, from the growth
+of an individual tree to the imperfect diameter measurements.
+
+## Tree Growth Models
+
+Tree growth is a complicated process.  In theory growth is moderated by
+the ambient environment which can change drastically across time.  For
+example a tree with full exposure to sunlight should grow faster than a
+tree under the shadow of neighboring trees.  Likewise limited access to
+water or other nutrients can inhibit growth.  Moreover the physiological
+processes that drive growth might be complicated in of themselves, for
+example varying with the age of a tree.
+
+In this section we will review some relatively simple growth models that
+might be useful for initial analyses.  The construction of these models
+does require some nontrivial mathematics, and it is absolutely okay if
+those mathematics are inaccessible to some readers.  Successful analyses
+often require collaboration between people who contribute scientific
+expertise and people who contribute mathematical expertise!
+
+### Linear Diameter Growth
+
+A mathematically simple model for tree growth assumes that the diameter
+at breast height increases linearly with time (@fig-linear)
+$$
+d(t) = d_{0} + \beta \cdot (t - t_{0}).
+$$
+
+![In a linear growth model a tree diameter grows linear with time.](
+figures/growth/linear/linear){
+width=75% #fig-linear}
+
+Linear diameter growth over an extended time is often unrealistic, but
+it can be a reasonable approximation for more complicated growth
+dynamics over shorter intervals of time.
+
+### Linear Mass Growth
+
+Linear diameter growth, however, also has awkward physiological
+consequences.  As a tree grows a fixed increase in diameter requires
+larger and larger increases in overall mass.
+
+If the energy inputs to a tree are fixed then an arguably more realistic
+model would assume that mass, and not diameter, increases linearly with
+time.  To model this mathematically let's assume that we can approximate
+trees as cylinders with constant density so that the total mass is
+related to the diameter by
+\begin{align*}
+m
+&=
+\text{density} \cdot \text{volume}
+\\
+&=
+\rho \cdot \pi \, \left( \frac{d}{2} \right)^{2} \, h
+\\
+&=
+\left( \frac{\pi}{4} \cdot \rho \cdot h \right) \, d^{2}
+\\
+&=
+C \, d^{2}.
+\end{align*}
+For convenience I've absorbed everything but the diameter into a single
+constant in that last step.
+
+If the tree mass grows linearly with time and the height remaining
+constant then
+\begin{align*}
+\delta m \cdot t
+&=
+m(t) - m_{0}
+\\
+&=
+C \, d(t)^{2} - C \, d_{0}^{2},
+\end{align*}
+or upon solving for $d(t)$,
+\begin{align*}
+\delta m \cdot t
+&=
+C \, d(t)^{2} - C \, d_{0}^{2}
+\\
+\frac{\delta m}{C} \cdot t
+&=
+d(t)^{2} - d_{0}^{2}
+\\
+d(t)^{2}
+&=
+d_{0}^{2} + \frac{\delta m}{C} \cdot t
+\\
+d(t)
+&=
+\sqrt{ d_{0}^{2} + \frac{\delta m}{C} \cdot t }
+\\
+d(t)
+&=
+\sqrt{ d_{0}^{2} + \beta \cdot t }.
+\end{align*}
+Because of the square root function the diameter growth will decelerate
+as a tree ages, but never quite stop (@fig-square-root).
+
+![Under idealized assumptions a linear increase in the mass of a tree
+results in a square root increase in the diameter of the tree.](
+figures/growth/square_root/square_root){
+width=75% #fig-square-root}
+
+### Gompertz Model
+
+In practice both the linear and square root growth models will be too
+inflexible to adequately model tree diameter growth for the decades that
+our observations span.  One particularly common class of models assume
+that the diameter growth follows a _sigmoidal curve_, allowing for
+accelerated growth at early ages, constant growth at intermediate ages,
+and decelerating growth at later ages.  There are many mathematical
+curves that fit this qualitative shape, but a particularly common choice
+in many ecological applications is the **Gompertz** family of curves,
+$$
+d(t) = d_{\max} \, \exp( -b \exp( -c \, t) ).
+$$
+To ensure monotonically increasing growth all three parameters must be
+positive.
+
+The interpretation of the parameter $d_{\max}$ is straightforward: it
+determines the asymptotic diameter that a tree will approach as it
+ages.  On the other hand the interpretation of the other two parameters
+is less clear, which can frustrate a principled use of this model in a
+real analysis.
+
+One way to make the Gompertz family of curves more interpretable is to
+find an alternative parameterization where each parameter directly
+corresponds to a meaningful behavior.  For example we might parameterize
+the curves in terms of their linear behavior at intermediate times.
+
+To that end let's introduce the intermediate time $\tau$ where a given
+Gompertz curve reached half of its asymptotic diameter,
+$$
+\frac{ d_{\max} }{ 2 }
+= d(\tau)
+= d_{\max} \exp( -b \exp( -c \, \tau) ),
+$$
+or, solving for $\tau$,
+$$
+\tau = \frac{ \log b - \log \log 2 }{ c }.
+$$
+The rate of growth at $\tau$ is then given by
+$$
+\beta
+= \frac{ \mathrm{d} d }{ \mathrm{d} t }(\tau)
+= \frac{ \log 2 }{ 2 } d_{\max} \, c.
+$$
+
+Conveniently the tree values $d_{\max}$, $\tau$, and $\beta$ completely
+determine a Gompertz curve.  In terms of these parameters the Gompertz
+family of curves becomes (@fig-gompertz)
+$$
+d(t) = d_{\max} \,
+\exp \left( -\log 2 \cdot
+\exp \left( -\frac{2}{\log 2} \, \frac{\beta}{d_{\max}} \,
+             \left( t - \tau \right) \right)
+\right)
+$$
+which is fortunately straightforward to implement in practice.
+
+![The Gompertz family of curves provides a sigmoidal model for tree
+diameter growth.  Here we've parameterized each curve in terms of its
+asymptotic diameter, $d_{\max}$, the time at which curve reaches half
+of this value, $\tau$, and the derivative at $\tau$, $\beta$.](
+figures/growth/gompertz/gompertz){
+width=75% #fig-gompertz}
+
+There are many ways of adding more flexible to the Gompertz model that
+could be useful when analyzing tree growth data.  For example replacing
+$t - \tau$ with a polynomial would allow for more complicated,
+potentially even asymmetric, behavior at both young and old ages.  Here
+we will consider a less sophisticated addition: a non-zero initial
+diameter,
+$$
+d(t) = d_{0} + \delta d \,
+\exp \left( -\log 2 \cdot
+\exp \left( -\frac{2}{\log 2} \, \frac{\beta}{\delta d} \,
+             \left( t - \tau \right) \right).
+\right)
+$$
+This offset could, for instance, allow the model to accommodate
+different growth dynamics for very young trees before sigmoidal growth
+kicks in.
+
+## Measurement Model
+
+Now that we have some candidate models for how tree diameter grows with
+time we need to consider how those diameters are actually measured.
+
+The diameter at breast height measurement procedure is not infinitely
+precise.  There can be errors in reading the measuring tape,
+misalignments of the measuring tape, non-uniforming in the diameter of
+the tree, inconsistencies from measurement to measurement, and more.
+A useful measurement model needs to account for not only how strongly
+these potential sources of variation can affect the diameter at breast
+height measurements but also what overall variation is consistent with
+our understanding of the procedure.
+
+For example let's consider how much misalignment of the measuring tape
+can affect diameter measurements.  As we did in the linear mass growth
+model let's assume that trees are well approximated by a cylinder of
+radius $r$, diameter $d = 2 \, r$, and height $h$, with all lengths in
+units of centimeters.
+
+In a perfect diameter at breast height measurement the measuring tape
+will form a circle with the same circumference as the tree at the tag
+height.  Consequently we can recover the diameter of the tree by
+dividing the measured length by $\pi$,
+$$
+d = \frac{ C_{\mathrm{flat}} }{ \pi }.
+$$
+
+When tape is tilted, however, it will form not a circle but rather an
+_ellipse_.  If the maximum offset is given by $\delta$ then the shape of
+the ellipse will be determined by the semi-minor axis (@fig-measurement)
+$$
+b = r = \frac{d}{2}
+$$
+and the semi-major axis
+$$
+a = \frac{1}{2} \sqrt{ d^{2} + \delta^{2} }.
+$$
+As we would hope this reduces back to a circle with $a = b = r$ when
+$\delta \rightarrow 0$.
+
+![When misaligned a measuring tape wrapped around a cylindrical tree
+defines an ellipse.  In this case dividing the measured length by $\pi$
+does not give the tree diameter exactly.](
+figures/diameter_measurement_error/diameter_measurement_error){
+width=75% #fig-measurement}
+
+Unfortunately the perimeter of an ellipse does not admit a simple
+mathematical form; instead it is given by a complicated function known
+as an **elliptic integral**.  For those interested in learning more
+Wikipedia has a nice discussion at
+<https://en.wikipedia.org/wiki/Ellipse#Circumference>.  We can, however,
+_approximate_ the perimeter of an ellipse is a variety of different
+ways; again Wikipedia has a clear discussion,
+<https://en.wikipedia.org/wiki/Ellipse#Arc_length>.
+
+For example the circumference of this tilted ellipse can be bounded
+above by
+\begin{align*}
+C_{\mathrm{tilt}}
+&\le
+\sqrt{2} \, \pi \, \sqrt{ b^{2} + a^{2} }
+\\
+&\le
+\sqrt{2} \, \pi \,
+\sqrt{  \left( \frac{d}{2} \right)^{2}
+      + \left(\frac{1}{2}\right)^{2} \bigg( d^{2} + \delta^{2} \bigg)
+}
+\\
+&\le
+\sqrt{2} \, \pi \, \frac{1}{2} \sqrt{ d^{2} + d^{2} + \delta^{2} }
+\\
+&\le
+\sqrt{2} \, \pi \, \frac{1}{2} \sqrt{ 2 d^{2} + \delta^{2} }
+\\
+&\le
+\sqrt{2} \, \pi \, \frac{\sqrt{2} \, d}{2}
+\sqrt{ 1 + \left( \frac{\delta}{2 \, d} \right)^{2} }
+\\
+&\le
+\pi \, d \, \sqrt{ 1 + \left( \frac{\delta}{2 \, d} \right)^{2} }.
+\end{align*}
+If the offset $\delta$ is much smaller than the actual tree diameter $d$
+then this upper bound will be a useful conservative approximation to
+the exact length of the tilted measuring tape,
+$$
+C_{\mathrm{tilt}} \approx
+\pi \, d \, \sqrt{ 1 + \left( \frac{\delta}{2 \, d} \right)^{2} }.
+$$
+
+Using the perimeter of the tilted ellipse in place of the perimeter of a
+flat circle does not recover the diameter of the tree,
+$$
+\frac{C_{\mathrm{tilt}}}{\pi}
+=
+d \, \sqrt{ 1 + \left( \frac{\delta}{2 \, d} \right)^{2} } \ge d.
+$$
+The larger perimeter always biases the recovered diameter to larger
+values.  When $\delta$ is unknown this bias manifests as an asymmetric
+variability in the measurements.
+
+Note that this measurement variability is not additive but rather
+_multiplicative_.  Indeed multiplicative measurement variability is
+common when working with measurements of positive quantities.  One way
+to recover additive measurement variability is to work with log
+diameters,
+$$
+\log \frac{C_{\mathrm{tilt}}}{\pi}
+=
+\log d
++ \frac{1}{2}
+  \log \left( 1 + \left( \frac{\delta}{2 \, d} \right)^{2} \right).
+$$
+
+In practice we can sometimes approximate the multiplicative measurement
+variability with additive measurement variability,
+$$
+\frac{C_{\mathrm{tilt}}}{\pi} \approx
+d
++ d_{0}
+  \left( \sqrt{ 1 + \left( \frac{\delta}{2 \, d} \right)^{2} } - 1 \right),
+$$
+where $d_{0}$ is the baseline diameter at which we want this
+approximation to be best.  This approximation is decent if all of our
+measurements are limited to a narrow range of tree diameters, but if our
+data spans measurements of very small and very large trees then the
+approximation can break down at the extremes.
+
+Assuming that an additive measurement model is a good enough
+approximation what do these variabilities look like in practice?  If
+the offsets never exceed ten percent of the actual tree diameter, which
+allows for some pretty strong misalignments, then
+$$
+\frac{ \delta }{ d } \approx 0.1,
+$$
+$$
+\frac{ \delta }{ 2 \, d } \approx 0.05,
+$$
+and
+$$
+\sqrt{ 1 + \left( \frac{\delta}{2 \, d} \right)^{2} } \approx 1.001.
+$$
+The deviation from the measured diameter to the true diameter is
+exceedingly small!
+
+For example if $d_{0} = 50 \, \mathrm{cm}$ then the scale of the
+approximate additive measurement variability would be orders of
+magnitude smaller,
+$$
+d_{0}
+\left( \sqrt{ 1 + \left( \frac{\delta}{2 \, d} \right)^{2} } - 1 \right)
+\approx 0.05 \, \mathrm{cm},
+$$
+which we can round up to about a millimeter.  This may appear
+surprisingly small but it's all a consequence of the geometry:
+relatively large warpings of a circle don't change the diameter as much
+as we might expect!
+
+Analysis of the other potential sources of variation gives similar
+results: multiplicative variation is more realistic but additive
+variation can be a reasonable approximation, and the scale of the linear
+variation is unlikely to exceed a millimeter or so.  For this exercise
+we'll assume the simpler linear measurement model,
+$$
+\hat{d}(t) \sim \text{normal}(d(t), \sigma),
+$$
+with our domain expertise excluding values of $\sigma$ much larger than
+$0.1 \, \mathrm{cm}$.  To be particularly conservative we will allow
+for measurement variabilities as large as $0.25 \, \mathrm{cm}$.
+
+# Demonstrative Analyses {#sec:analyses}
+
+Having brainstormed some possible models let's try to incorporate them
+into a Bayesian analysis using the probabilistic programming tool
+`Stan`, in particular it's `R` interface `RStan`.
+
+## Set Up {#sec:setup}
+
+First and foremost we need to load the `rstan` package into our local
+`R` environment and configure it.
+
+```{r}
+#| warning: false
+#| message: false
+library(rstan)
+rstan_options(auto_write = TRUE)            # Cache compiled Stan programs
+options(mc.cores = parallel::detectCores()) # Parallelize chains
+parallel:::setDefaultClusterOptions(setup_strategy = "sequential")
+```
+
+Next we'll load my recommended Markov chain Monte Carlo diagnostic and
+analysis code.  The code itself as well as documentation can be found
+at <https://github.com/betanalpha/mcmc_diagnostics>.
+
+```{r}
+util <- new.env()
+source('stan_utility_rstan.R', local=util)
+```
+
+## Homogeneous Linear Model {#sec:homo-linear}
+
+Let's start as simply as possible: we'll assume a linear diameter growth
+model where all trees in the data set are allowed to have different
+initial diameters but all grow at the same rate.  I will use normal
+containment prior models to softly constrain the initial heights below
+150 cm, the growth rate below 2 cm per year in magnitude, and the
+measurement variability below 0.25 cm.  For an introduction to normal
+containment prior models see <https://betanalpha.github.io/assets/case_studies/prior_modeling.html#3_One-Dimensional_Expertise>.
+
+To facilitate the analysis of our Stan program we will also save the
+inferred diameter of each tree along a grid of times.
+
+```{.stan include="stan_programs/homogeneous_linear_growth.stan" filename="homogeneous\\_linear\\_growth.stan"}
+```
+
+```{r}
+data <- mget(c("N", "N_trees", "tree_N_obs",
+               "tree_start_idxs", "tree_end_idxs",
+               "tree_years", "tree_dbhs"))
+
+year_grid <- seq(1975, 2020, 1)
+N_year_grid <- length(year_grid)
+
+data$N_year_grid <- N_year_grid
+data$year_grid <- year_grid
+```
+
+```{r}
+#| warning: false
+#| message: false
+fit <- stan(file="stan_programs/homogeneous_linear_growth.stan",
+            data=data, seed=8438338,
+            warmup=1000, iter=2024, refresh=0)
+```
+
+The lack of diagnostic failures is consistent with `Stan` being able to
+accurately quantify our posterior uncertainties.
+
+```{r}
+diagnostics <- util$extract_hmc_diagnostics(fit)
+util$check_all_hmc_diagnostics(diagnostics)
+
+samples <- util$extract_expectands(fit)
+base_samples <- util$filter_expectands(samples,
+                                       c('d0', 'beta', 'sigma'),
+                                       check_arrays=TRUE)
+util$check_all_expectand_diagnostics(base_samples)
+```
+
+Unfortunately posterior retrodictive checks show a poor fit for many
+of the trees in our data set.  This suggests that different trees might
+be growing at different rates.
+
+```{r}
+plot_cont_marginal_quantiles <- function(xs, preds,
+                                         display_xlims=NA,
+                                         display_ylims=NA,
+                                         title="",
+                                         x_name="", y_name="") {
+  probs = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+  cred <- sapply(preds, function(pred)
+                        quantile(c(t(pred), recursive=TRUE),
+                        probs=probs))
+
+  if (is.na(display_xlims)) {
+    xlims <- range(xs)
+  } else {
+    xlims <- display_xlims
+  }
+
+  if (is.na(display_ylims)) {
+    ylims <- c(min(cred[1,]), max(cred[9,]))
+  } else {
+    ylims <- display_ylims
+  }
+
+  plot(1, type="n", main=title,
+       xlim=xlims, xlab=x_name,
+       ylim=ylims, ylab=y_name)
+
+  polygon(c(xs, rev(xs)), c(cred[1,], rev(cred[9,])),
+          col = c_light, border = NA)
+  polygon(c(xs, rev(xs)), c(cred[2,], rev(cred[8,])),
+          col = c_light_highlight, border = NA)
+  polygon(c(xs, rev(xs)), c(cred[3,], rev(cred[7,])),
+          col = c_mid, border = NA)
+  polygon(c(xs, rev(xs)), c(cred[4,], rev(cred[6,])),
+          col = c_mid_highlight, border = NA)
+  lines(xs, cred[5,], col=c_dark, lwd=2)
+}
+
+par(mfrow=c(3, 3), mar = c(5, 4, 2, 1))
+
+for (t in 1:data$N_trees) {
+  idxs <- data$tree_start_idxs[t]:data$tree_end_idxs[t]
+  years <- data$tree_years[idxs]
+  dbhs <- data$tree_dbhs[idxs]
+
+  pred_names <- sapply(1:data$N_year_grid,
+                       function(n) paste0('dbh_grid_pred[',
+                                          t, ',', n, ']'))
+  preds <- samples[pred_names]
+  plot_cont_marginal_quantiles(data$year_grid, preds,
+                               title=paste0(tree_ids[t], ", t = ", t),
+                               x_name="Year", y_name="DBH (cm)")
+  points(years, dbhs, col="white", pch=16, cex=1.2)
+  points(years, dbhs, col="black", pch=16, cex=0.8)
+}
+```
+
+The inadequacy of this first model is also hinted at in the inferred
+posterior behavior.  Marginal posterior distributions for all of the
+initial diameters appears to be reasonable.
+
+```{r}
+plot_disc_marginal_quantiles <- function(samples, names, x_name="") {
+  N <- length(names)
+  idx <- rep(1:N, each=2)
+  xs <- sapply(1:length(idx), function(k)
+                              if(k %% 2 == 0) idx[k] + 0.5 else idx[k] - 0.5)
+
+  probs = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+  cred <- sapply(1:N, function(n)
+                      quantile(c(t(samples[[names[n]]]), recursive=TRUE),
+                               probs=probs))
+  pad_cred <- do.call(cbind, lapply(idx, function(n) cred[1:9,n]))
+
+  ylims <- c(min(cred[1,]), max(cred[9,]))
+
+  plot(1, type="n",
+       xlim=c(0.5, N + 0.5), xlab=x_name,
+       ylim=ylims, ylab="Marginal\nPosterior Quantiles")
+
+  polygon(c(xs, rev(xs)), c(pad_cred[1,], rev(pad_cred[9,])),
+          col = c_light, border = NA)
+  polygon(c(xs, rev(xs)), c(pad_cred[2,], rev(pad_cred[8,])),
+          col = c_light_highlight, border = NA)
+  polygon(c(xs, rev(xs)), c(pad_cred[3,], rev(pad_cred[7,])),
+          col = c_mid, border = NA)
+  polygon(c(xs, rev(xs)), c(pad_cred[4,], rev(pad_cred[6,])),
+          col = c_mid_highlight, border = NA)
+  for (n in 1:N) {
+    lines(xs[(2 * n - 1):(2 * n)], pad_cred[5,(2 * n - 1):(2 * n)],
+          col=c_dark, lwd=2)
+  }
+}
+```
+
+```{r}
+par(mfrow=c(1, 1), mar = c(5, 4, 2, 1))
+
+d0_names <- sapply(1:data$N_trees, function(t) paste0('d0[', t, ']'))
+plot_disc_marginal_quantiles(samples, d0_names, "d0")
+```
+
+Similarly inferences for the shared growth rate don't appear to be out
+of order.
+
+```{r}
+util$plot_expectand_pushforward(samples[["beta"]], 25,
+                                display_name="beta")
+```
+
+Inferences for the measurement variability, however, concentrate at
+oddly large values.
+
+```{r}
+util$plot_expectand_pushforward(samples[["sigma"]], 25,
+                                display_name="sigma")
+```
+
+Indeed they concentrate at values far above the soft threshold of 0.25
+cm that our prior model tries to enforce.  Note the factor of 2 when
+evaluating the prior probability densities because we're plotting a
+half-normal probability density function and not a regular normal
+probability density function.
+
+```{r}
+util$plot_expectand_pushforward(samples[["sigma"]], 100,
+                                display_name="sigma", flim=c(0, 2))
+xs <- seq(0, 2, 0.01)
+ys <- 2 * dnorm(xs, 0, 0.25 / 2.57)
+lines(xs, ys, lwd=2, col=c_light)
+```
+
+What's happening here is that the posterior distribution tries to
+accommodate the data however it can.  Because the growth model isn't
+flexible enough to accommodate the behavior of each individual tree the
+measurement model has to compensate by inflating $\sigma$ so that the
+measurement variability envelopes as much of the residual deviation as
+possible.
+
+## Heterogeneous Linear Model {#sec:hetero-linear}
+
+In general there could be many reasons why the posterior retrodictive
+performance of our initial model was poor.  One of the most prominent
+is the assumption of a common growth rate amongst all of the trees.
+Let's see if allowing the growth rate to vary from tree to tree results
+in a better fit.
+
+```{.stan include="stan_programs/heterogeneous_linear_growth.stan" filename="heterogeneous\\_linear\\_growth.stan"}
+```
+
+```{r}
+#| warning: false
+#| message: false
+fit <- stan(file="stan_programs/heterogeneous_linear_growth.stan",
+            data=data, seed=8438338,
+            warmup=1000, iter=2024, refresh=0)
+```
+
+Fortunately there are no signs that our computed inferences might be
+untrustworthy.
+
+```{r}
+diagnostics <- util$extract_hmc_diagnostics(fit)
+util$check_all_hmc_diagnostics(diagnostics)
+
+samples <- util$extract_expectands(fit)
+base_samples <- util$filter_expectands(samples,
+                                       c('d0', 'beta', 'sigma'),
+                                       check_arrays=TRUE)
+util$check_all_expectand_diagnostics(base_samples)
+```
+
+Overall the posterior retrodictive performance is much improved.
+
+```{r}
+par(mfrow=c(3, 3), mar = c(5, 4, 2, 1))
+
+for (t in 1:data$N_trees) {
+  idxs <- data$tree_start_idxs[t]:data$tree_end_idxs[t]
+  years <- data$tree_years[idxs]
+  dbhs <- data$tree_dbhs[idxs]
+
+  pred_names <- sapply(1:data$N_year_grid,
+                       function(n) paste0('dbh_grid_pred[',
+                                          t, ',', n, ']'))
+  preds <- samples[pred_names]
+  plot_cont_marginal_quantiles(data$year_grid, preds,
+                               title=paste0(tree_ids[t], ", t = ", t),
+                               x_name="Year", y_name="DBH (cm)")
+  points(years, dbhs, col="white", pch=16, cex=1.2)
+  points(years, dbhs, col="black", pch=16, cex=0.8)
+}
+```
+
+That some trees show signs of of accelerating growth in earlier years
+and decelerating growth in later years that our model cannot
+accommodate.
+
+```{r}
+par(mfrow=c(2, 2), mar = c(5, 4, 2, 1))
+
+for (t in c(1, 8, 9, 11)) {
+  idxs <- data$tree_start_idxs[t]:data$tree_end_idxs[t]
+  years <- data$tree_years[idxs]
+  dbhs <- data$tree_dbhs[idxs]
+
+  pred_names <- sapply(1:data$N_year_grid,
+                       function(n) paste0('dbh_grid_pred[',
+                                          t, ',', n, ']'))
+  preds <- samples[pred_names]
+  plot_cont_marginal_quantiles(data$year_grid, preds,
+                               title=paste0(tree_ids[t], ", t = ", t),
+                               x_name="Year", y_name="DBH (cm)")
+  points(years, dbhs, col="white", pch=16, cex=1.2)
+  points(years, dbhs, col="black", pch=16, cex=0.8)
+}
+```
+
+The inadequacy of this heterogeneous linear growth model is also
+hinted at by the continued concentration of the marginal posterior
+distribution for $\sigma$ at values above the soft threshold encoded in
+our prior model.  That said the deviation is much weaker than it was
+before, suggesting that the inadequacy has been reduced.
+
+```{r}
+par(mfrow=c(1, 1), mar = c(5, 4, 2, 1))
+
+util$plot_expectand_pushforward(samples[["sigma"]], 50,
+                                display_name="sigma", flim=c(0, 0.75))
+xs <- seq(0, 2, 0.01)
+ys <- 2 * dnorm(xs, 0, 0.25 / 2.57)
+lines(xs, ys, lwd=2, col=c_light)
+```
+
+## Heterogeneous Gompertz Model {#sec:gompertz}
+
+A useful check for model adequacy doesn't just indicate that there might
+be a problem but also informs us of what the problem might be.  The
+previous posterior retrodictive check suggested that we need a more
+flexible growth model that can accommodate early accelerated growth and
+late decelerated growth.  Fortunately this is exactly what a Gompertz
+growth model can provide, especially with an offset initial diameter.
+
+```{.stan include="stan_programs/heterogeneous_gompertz_growth.stan" filename="homogeneous\\_linear\\_growth.stan"}
+```
+
+```{r}
+#| warning: false
+#| message: false
+fit <- stan(file="stan_programs/heterogeneous_gompertz_growth.stan",
+            data=data, seed=8438338,
+            warmup=1000, iter=2024, refresh=0)
+```
+
+Unfortunately the diagnostics seem to be extremely upset indicating that
+our posterior computation is not to be trusted.
+
+```{r}
+diagnostics <- util$extract_hmc_diagnostics(fit)
+util$check_all_hmc_diagnostics(diagnostics)
+
+samples <- util$extract_expectands(fit)
+base_samples <- util$filter_expectands(samples,
+                                       c('d0', 'delta_d', 'beta',
+                                         'delta_t_half', 'sigma'),
+                                       check_arrays=TRUE)
+util$check_all_expectand_diagnostics(base_samples)
+```
+
+Notice that the expectand diagnostic failures manifest for only the
+parameters of the 18th tree in the data set.  This suggests that those
+parameters might be the most probematic.  Indeed the pairs plots of the
+Markov chain Monte Carlo output for these parameters show some wild
+posterior geometries.
+
+```{r}
+names <- c('d0[18]', 'delta_d[18]', 'beta[18]', 'delta_t_half[18]')
+util$plot_div_pairs(names, names, samples, diagnostics)
+```
+
+Why would this tree be so problematic?  Well let's contrast the data
+to some posterior samples of the growth curve.
+
+```{r}
+plot_realizations <- function(xs, fs, N=50,
+                              x_name="", display_xlims=NA,
+                              y_name="", display_ylims=NA,
+                              title="") {
+  I <- dim(fs)[2]
+  J <- min(N, I)
+
+  plot_idx <- sapply(1:J, function(j) (I %/% J) * (j - 1) + 1)
+
+  nom_colors <- c("#DCBCBC", "#C79999", "#B97C7C",
+                  "#A25050", "#8F2727", "#7C0000")
+  line_colors <- colormap(colormap=nom_colors, nshades=J)
+
+  if (is.na(display_xlims)) {
+    xlims <- range(xs)
+  } else {
+    xlims <- display_xlims
+  }
+
+  if (is.na(display_ylims)) {
+    ylims <- range(fs)
+  } else {
+    ylims <- display_ylims
+  }
+
+  plot(1, type="n", main=title,
+       xlab=x_name, xlim=xlims,
+       ylab=y_name, ylim=ylims)
+  for (j in 1:J) {
+    r_fs <- fs[, plot_idx[j]]
+    lines(xs, r_fs, col=line_colors[j], lwd=3)
+  }
+}
+```
+
+```{r}
+par(mfrow=c(1, 1), mar = c(5, 4, 2, 1))
+
+t <- 18
+idxs <- data$tree_start_idxs[t]:data$tree_end_idxs[t]
+years <- data$tree_years[idxs]
+dbhs <- data$tree_dbhs[idxs]
+
+fs <- t(sapply(1:data$N_year_grid,
+               function(n) c(t(samples[[paste0('dbh_grid[',
+                                               t, ',', n, ']')]]),
+                             recursive=TRUE)))
+
+plot_realizations(data$year_grid, fs, 25,
+                  x_name="Year", y_name="DBH (cm)",
+                  title=paste0(tree_ids[t], ", t = ", t),)
+points(years, dbhs, col="white", pch=16, cex=1.2)
+points(years, dbhs, col="black", pch=16, cex=0.8)
+```
+
+The measured diameters for this particular tree are consistent with no
+growth.  An offset Gomertz curve can accommodate this flat behavior in
+multiple ways; for example we can shift the growth curve to the left
+so that the data fall into the upper asymptote or shift it to the right
+so that the data fall into the lower asymptote, with $d_{0}$ and
+$\delta_{d}$ compensating to give the appropriate diameters.  All of
+these different possibilities result in complex posterior uncertainties
+that are computationally difficult for `Stan` to quantify.
+
+Without more observations for this particular tree the only way to
+improve the posterior behavior would be to incorporate more information
+into our prior model, for example more carefully constraining the
+reasonable locations of the growth curves.  For the moment let's just
+remove this tree entirely.
+
+```{r}
+active_tree_ids <- head(good_tree_ids, 17)
+
+good_tree_ids <- c()
+tree_N_obs <- c()
+tree_start_idxs <- c()
+tree_end_idxs <- c()
+tree_years <- c()
+tree_dbhs <- c()
+tree_vigors <- c()
+tree_species <- c()
+tree_statuses <- c()
+tree_notes <- c()
+
+idx <- 1
+
+for (id in active_tree_ids) {
+  # Isolate tree observations
+  tree_data <- stand_tree_data[stand_tree_data['TREEID'] == id,]
+
+  years <- tree_data[,'YEAR']
+  dbhs <- tree_data[,'DBH']
+  vigors <- tree_data[,'TREE_VIGOR']
+  species <- tree_data[,'SPECIES']
+  statuses <- tree_data[,'TREE_STATUS']
+  notes <- tree_data[,'CHECK_NOTES']
+
+  # Remove post-mortality observations
+  good_obs <- which(vigors != "M")
+  years <- years[good_obs]
+  dbhs <- dbhs[good_obs]
+  vigors <- vigors[good_obs]
+  species <- species[good_obs]
+  statuses <- statuses[good_obs]
+  notes <- notes[good_obs]
+
+  # Drop tree if there are not at least four observations
+  N_obs <- length(years)
+  if (N_obs < 4) next
+
+  # Append tree data to concatenated arrays
+  good_tree_ids <- c(good_tree_ids, id)
+  tree_N_obs <- c(tree_N_obs, N_obs)
+
+  start_idx <- idx
+  end_idx <- idx + N_obs - 1
+  idx <- idx + N_obs
+  tree_start_idxs <- c(tree_start_idxs, start_idx)
+  tree_end_idxs <- c(tree_end_idxs, end_idx)
+
+  tree_years <- c(tree_years, years)
+  tree_dbhs <- c(tree_dbhs, dbhs)
+  tree_vigors <- c(tree_vigors, vigors)
+  tree_species <- c(tree_species, species)
+  tree_statuses <- c(tree_statuses, statuses)
+  tree_notes <- c(tree_notes, notes)
+}
+
+N <- length(tree_years)
+N_trees <- length(good_tree_ids)
+
+data <- mget(c("N", "N_trees", "tree_N_obs",
+               "tree_start_idxs", "tree_end_idxs",
+               "tree_years", "tree_dbhs"))
+
+year_grid <- seq(1975, 2020, 1)
+N_year_grid <- length(year_grid)
+
+data$N_year_grid <- N_year_grid
+data$year_grid <- year_grid
+```
+
+Will the fit be any better?
+
+```{r}
+#| warning: false
+#| message: false
+fit <- stan(file="stan_programs/heterogeneous_gompertz_growth.stan",
+            data=data, seed=8438338,
+            warmup=1000, iter=2024, refresh=0)
+```
+
+The diagnostics are still grumbling a bit.
+
+```{r}
+diagnostics <- util$extract_hmc_diagnostics(fit)
+util$check_all_hmc_diagnostics(diagnostics)
+
+samples <- util$extract_expectands(fit)
+base_samples <- util$filter_expectands(samples,
+                                       c('d0', 'delta_d', 'beta',
+                                         'delta_t_half', 'sigma'),
+                                       check_arrays=TRUE)
+util$check_all_expectand_diagnostics(base_samples)
+```
+
+The saturating tree depth and low emprical effective sample size
+warnings  are consistent with strong posterior uncertainties.
+Fortunately these warnings indicate _inefficient_ posterior
+computation but not _inaccurate_ posterior computation.  Similarly
+the $\hat{\xi}$ warnings indicate that the marginal posterior
+distribution for the 11th tree is heavy-tailed.  Heavy-tailed posterior
+distributions require `Stan` to work harder but don't necessarily
+obstruct accurate computation.
+
+The posterior realizations of the growth curve for the 11th tree don't
+seem to exhibit any particularly extreme behaviors.
+
+```{r}
+par(mfrow=c(1, 1), mar = c(5, 4, 2, 1))
+
+t <- 11
+idxs <- data$tree_start_idxs[t]:data$tree_end_idxs[t]
+years <- data$tree_years[idxs]
+dbhs <- data$tree_dbhs[idxs]
+
+fs <- t(sapply(1:data$N_year_grid,
+               function(n) c(t(samples[[paste0('dbh_grid[',
+                                               t, ',', n, ']')]]),
+                             recursive=TRUE)))
+
+plot_realizations(data$year_grid, fs, 25,
+                  x_name="Year", y_name="DBH (cm)",
+                  title=paste0(tree_ids[t], ", t = ", t),)
+points(years, dbhs, col="white", pch=16, cex=1.2)
+points(years, dbhs, col="black", pch=16, cex=0.8)
+```
+
+We have to be careful, however, because heavy tails result in more
+extreme but also more rare behaviors.  This means that we often have to
+plot many realizations before we see the tail behaviors, and here we're
+plotting only 25 realizations.
+
+Any ways, all of this discussion is to say that while our posterior
+distribution exhibits some awkward behaviors `Stan` should be giving us
+a faithful picture of those behaviors and we can continue on with our
+analysis.
+
+The posterior retrodictive performance looks outright incredible
+compared to what have seen with the first two models.
+
+```{r}
+par(mfrow=c(3, 3), mar = c(5, 4, 2, 1))
+
+for (t in 1:data$N_trees) {
+  idxs <- data$tree_start_idxs[t]:data$tree_end_idxs[t]
+  years <- data$tree_years[idxs]
+  dbhs <- data$tree_dbhs[idxs]
+
+  pred_names <- sapply(1:data$N_year_grid,
+                       function(n) paste0('dbh_grid_pred[',
+                                          t, ',', n, ']'))
+  preds <- samples[pred_names]
+  plot_cont_marginal_quantiles(data$year_grid, preds,
+                               title=paste0(tree_ids[t], ", t = ", t),
+                               x_name="Year", y_name="DBH (cm)")
+  points(years, dbhs, col="white", pch=16, cex=1.2)
+  points(years, dbhs, col="black", pch=16, cex=0.8)
+}
+```
+
+The offset Gompertz growth model is able to accommodate the late-stage
+saturation seen in many of the trees and is partially able to
+accommodate the early-stage turn on seen in other trees.
+
+```{r}
+par(mfrow=c(2, 2), mar = c(5, 4, 2, 1))
+
+for (t in c(1, 8, 9, 11)) {
+  idxs <- data$tree_start_idxs[t]:data$tree_end_idxs[t]
+  years <- data$tree_years[idxs]
+  dbhs <- data$tree_dbhs[idxs]
+
+  pred_names <- sapply(1:data$N_year_grid,
+                       function(n) paste0('dbh_grid_pred[',
+                                          t, ',', n, ']'))
+  preds <- samples[pred_names]
+  plot_cont_marginal_quantiles(data$year_grid, preds,
+                               title=paste0(tree_ids[t], ", t = ", t),
+                               x_name="Year", y_name="DBH (cm)")
+  points(years, dbhs, col="white", pch=16, cex=1.2)
+  points(years, dbhs, col="black", pch=16, cex=0.8)
+}
+```
+
+Posterior inferences for the measurement variability are now finally
+corralled below the 0.25 cm threshold encoded in our prior model.
+
+```{r}
+par(mfrow=c(1, 1), mar = c(5, 4, 2, 1))
+util$plot_expectand_pushforward(samples[["sigma"]], 50,
+                                display_name="sigma", flim=c(0, 0.75))
+xs <- seq(0, 2, 0.01)
+ys <- 2 * dnorm(xs, 0, 0.25 / 2.57)
+lines(xs, ys, lwd=2, col=c_light)
+```
+
+Confident in the adequacy of our model we can study the posterior
+inferences for each individual tree.  Any patterns in these inferences
+that correlate with tree health or environental conditions would suggest
+additional features that we could incorporate into the model.
+
+```{r}
+par(mfrow=c(4, 1), mar = c(5, 4, 2, 1))
+
+names <- sapply(1:data$N_trees,
+                function(t) paste0('d0[', t, ']'))
+plot_disc_marginal_quantiles(samples, names, "d0")
+
+names <- sapply(1:data$N_trees,
+                function(t) paste0('delta_d[', t, ']'))
+plot_disc_marginal_quantiles(samples, names, "delta_d")
+
+names <- sapply(1:data$N_trees,
+                function(t) paste0('beta[', t, ']'))
+plot_disc_marginal_quantiles(samples, names, "beta")
+
+names <- sapply(1:data$N_trees,
+                function(t) paste0('delta_t_half[', t, ']'))
+plot_disc_marginal_quantiles(samples, names, "delta_t_half")
+```
+
+# Next Steps
+
+By following the feedback from posterior retrodictive checks and
+leveraging our domain expertise we have been able to iteratively
+increase the sophistication of our model, building up to a reasonably
+accurate approximation of the true data generating process.
+
+That said there are some lingerin issues with our last model and
+many possible extensions that could bring us closer to answering some of
+our scientific questions.  In other words there are still many more
+steps that we could take to improve the analysis.
+
+One immediate next step would be to follow up on the sampler
+diagnostics.  We could for example increase the maximum tree depth in
+`Stan` to allow for more expensive, but more effective, Markov chain
+Monte Carlo computation.  At the same time we could work on
+incorporating our domain expertise into a more informative prior model
+that might reduce the posterior uncertainties, and hence the
+computational difficulty in exploring those uncertainties.
+
+We could also investigate alternative sigmoidal growth models that might
+offer a better fit to the data.  For instance we might look at logistic
+models or models where the linear time argument is replaced by a
+higher-order polynomial to see if the added flexibility allows for an
+improved fit to the data.  This can be especially important when we
+consider data from more trees, both in our initial tree stand and in
+other tree stands.
+
+Once we trust the adequacy of our model and the faithfulness of our
+posterior computation we could then investigate any patterns in the
+tree behaviors, potentially correlating them with auxiliary tree status
+observations to suggest growth models sensitive to tree physiology and
+environmental factors such as tree species, tree health, and sunlight
+exposure.  Any clustering of tree growth behavior by these categories
+could be incorporated into a hierarchical model that would model not
+only the individual trees but also the forest in which the trees belong.
+
+Finally expanding our analysis with data from other tree stands at other
+locations around Mount Rainier would allow us to start considering the
+influence of different climates on tree growth.  This is not only of
+general scientific interest but also might be useful for predicting
+growth behavior under an evolving climate, if not helping to infer that
+evolution itself.
+
+# Workshop Presentation
+
+This exercise was originally developed for a two-day, interactive
+workshop held at the University of British Columbia in January 2024.
+The goal of the workshop was not to teach the audience of ecology
+undergraduate students, graduate students, and postdoctoral researchers
+any particular technique but rather to expose them to the possibilities
+of (narratively) generative modeling and Bayesian inference, stimulating
+their curiosity and perhaps motivating them to learn more in the future.
+In particular the audience was expected to be familiar with basic
+ecology and use of the `R` language but _not_ to have any prior
+experience with the statistical analysis steps shown in
+[Section 3](#sec:analyses).
+
+The workshop itself was structured into three parts.
+
+On the first half of the first day we introduced the provenance of the
+data discused in [Section 1.1](#sec:provenance) before allowing the
+students to explore and visualize the data on their own.  Throughout we
+encouraged the students to consider their understanding of the data
+provenance, and the conceptual data generating processes it suggested,
+to motivate the exploration.  Students were free to use the `R` data
+manipulation tools with which they were most comfortable.
+
+For the second half of the first day the students brainstormed and
+researched potential mathematical models for tree growth and diameter
+measurements.  Interactively we also encouraged students to also
+consider reasonable values for the parameters in the models they
+identified, setting them up for principled prior modeling.
+
+Finally at the beginning of the second day we gave the students the code
+in [Section 1.2](#sec:initial-setup) and [Section 1.3](#sec:eda), in
+case they had any troubles in programming their own data exploration,
+and then the code in [Section 3.1](#sec:setup) and
+[Section 3.2](#sec:homo-linear) to serve as a basic template for
+implementing a Bayesian analyses.  We then directed the students to take
+the analysis in whichever direction they wanted.
+
+At the end of the second day we gathered back together.  We began our
+conclusion with the students sharing brief, improvised presentations of
+what they attempted and what they were able to achieve in such a short
+time.  The teaching staff also took this opportunity to discuss the
+general challenges and opportunities that the student anaylyses
+demonstrated.  Afterwards we reviewed my analysis in
+[Section 3.2](#sec:homo-linear) and [Section 3.3](#sec:gompertz).
+
+The room in which the workshop was held was organized into small, round
+ables that implicitly encouraged the students to work together in small
+groups.  This facilitated the sharing of ecological, statistical, and
+programming expertise amongst the students, which was particularly
+productive given their diverse backgrounds.
+
+Because of the interactive and open nature of the curriculum the
+workshop strongly benefited from a large and dedicated teaching staff.
+Myself, Elizabeth Wolkovich, Will Pearse, Harold Eyster,
+Andrew MacDonald, and Vianey Leos Barajas patrolled the room, answering
+individual questions about ecological modeling, Bayesian inference,
+Markov chain Monte Carlo, `R`, `Stan`, and more so that students were
+never left to struggle too long and become frustrated no matter what
+their prior experience may have been.
+
+# Acknowledgements {-}
+
+I thank Elizabeth Wolkovich for obtaining and researching the provenance
+of the data and sharing her extensive domain expertise, not to mention 
+organizing the workshop that initially stimulated this exercise.
+Additionally I thank Ailene Ettinger for providing the diameter
+measurement photograph.
+
+The tree diameter data were provided by the H.J. Andrews Experimental
+Forest and Long Term Ecological Research (LTER) program, administered
+cooperatively by Oregon State University, the USDA Forest Service
+Pacific Northwest Research Station, and the Willamette National Forest.
+This material is based upon work supported by the National Science
+Foundation under the grant LTER8 DEB-2025755.
+
+# License {-}
+
+The code in this case study is copyrighted by Michael Betancourt and licensed
+under the new BSD (3-clause) license:
+
+https://opensource.org/licenses/BSD-3-Clause
+
+The text and figures in this case study are copyrighted by Michael Betancourt
+and licensed under the CC BY-NC 4.0 license:
+
+https://creativecommons.org/licenses/by-nc/4.0/
+
+Photographs are copyrighted by their respective owners and used with
+permission.
+
+# Original Computing Environment {-}
+
+```{r, comment=NA}
+writeLines(readLines(file.path(Sys.getenv("HOME"), ".R/Makevars")))
+```
+
+```{r, comment=NA}
+sessionInfo()
+```
