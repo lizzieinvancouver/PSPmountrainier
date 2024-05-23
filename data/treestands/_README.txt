@@ -5,6 +5,8 @@ By Lizzie so far
 Data available at: https://pnwpsp.forestry.oregonstate.edu/data
 Most relevant for us for tree data: https://andlter.forestry.oregonstate.edu/data/abstract.aspx?dbcode=TV010
 
+Also add data citation: Franklin, J.F., D. Bell, S.M. Remillard, and M. Powers. 2023. Long-term growth, mortality and regeneration of trees in permanent vegetation plots in the Pacific Northwest, 1910 to present ver 24. Environmental Data Initiative. https://doi.org/10.6073/pasta/5835a1fadb7fd65842f90256edae999c (Accessed 2023-09-23).
+
 Sections are:
 
 Overview
@@ -96,6 +98,8 @@ LONG: "Data [and/or facilities] were provided by the H.J. Andrews Experimental F
 
 (3) Please send a PDF or full citation of your Andrews Forest related publications to HJApubs@lists.oregonstate.edu. We keep track of all Andrews Forest publications. Thank you!
 
+(4) Also add reference to data citation: 
+Franklin, J.F., D. Bell, S.M. Remillard, and M. Powers. 2023. Long-term growth, mortality and regeneration of trees in permanent vegetation plots in the Pacific Northwest, 1910 to present ver 24. Environmental Data Initiative. https://doi.org/10.6073/pasta/5835a1fadb7fd65842f90256edae999c (Accessed 2023-09-23).
 
 <><><><><><><>
 <> Misc notes <>
